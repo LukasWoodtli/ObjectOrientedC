@@ -24,7 +24,7 @@ void testScaleable(Scaleable s) {
 
 #define NRECT 10
 
-void main() {
+int main(void) {
    struct Circle circle;  /* Circle instance on the stack frame */
    Circle c;
    Rect r; 
@@ -50,6 +50,8 @@ void main() {
    /* detstroy objects... */
    VCALL(c, Object, Des)END_CALL;  /* dynamic binding */
    DELETE_ARR(r);
+
+   return 0;
 }
     
 
