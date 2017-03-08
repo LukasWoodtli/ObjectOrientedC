@@ -1,0 +1,811 @@
+These are release notes to EPS 12'97 article "Portable Inheritance and 
+Polymorphism in C". The source code listings follow a "Quick Reference" 
+which explains steps necessary to implement particular OO concepts in C.
+You will need the include file "object.h" and implementation file 
+"object.c" to use in your projects. I provide also sample application
+discussed briefly in the article. These files are marked as "sample
+code".
+In order to test the sample application you need to extract and save
+as separate files : "object.h", "object.c", "string.h", "string.c",
+"shapes.h", "shapes.c" and "test.c". They should compile and link 
+without warnings. 
+
+Miro Samek
+miroslaw.samek@med.ge.com
+
+
+Portable Inheritance and Polymorphism in C - Quick Reference
+============================================================
+
+   This document explains implementation of following 'design patterns'
+
+   in C:
+
+     * Encapsulation -- packaging data with functions into  classes  as
+       well as techniques for information hiding and modularity,
+   
+     * Inheritance -- ability to define new classes and behavior  based
+       on   existing   classes   to  obtain  code   re-use   and   code
+       organization,
+
+     * Polymorphism  --  the  same message sent  to  different  objects
+       results  in  behavior that is dependent on  the  nature  of  the
+       object receiving the message.
+   
+   This implementation adopts Java(tm) language approach to inheritance
+   and  polymorphism.  Only  single class  inheritance  (implementation
+   inheritance) is provided with 'Object' abstract class at the root of
+   the  class  hierarchy.  In contrast, multiple interface  inheritance
+   (type  inheritance) is provided allowing classes to  implement  many
+   interfaces.
+
+
+Abstract Base Class 'Object'
+----------------------------
+   The Object class is at the  root of the class hierarchy.  This class 
+   encapsulates   virtual   pointer  and  defines  virtual   destructor 
+   (inherited subsequently by all other classes). Constructor and  des-
+   tructor are defined 'inline' as macros for efficiency. They are both
+   protected (access to them is granted to  subclasses  only),  because 
+   this class is intended solely for inheritance.  No 'Object'  objects 
+   should be created by clients.
+ 
+   This class declares also a couple of private methods  (some of  them
+   are class methods, i.e. have no 'this' pointer).  These methods  are
+   intended to use through macros only, since they require type casting,
+   which is legitimate only in certain contexts. 
+
+ Declaring Classes
+ -----------------
+   Classes are represented as structs of attributes. Class methods  are
+   implemented as C functions taking as their first argument pointer to
+   the attribute structure ('this' pointer). The class name is  mangled
+   with method names.  A class must  always  extend  other  class  with
+   Object at the root of the class hierarchy (single class inheritance).
+ 
+     1. Use macro CLASS to start class declaration.
+     2. Invoke  IMPLEMENTS  macro  for  each  interface  you  want   to
+        implement by this class (optional).
+     3. Declare attributes of the class (instance variables).
+     4. Continue with macro VTABLE to declare  virtual  functions.  The
+        arguments of macro VITABLE must be  identical as those used for
+        corresponding macro CLASS.
+     5. Invoke macro EXTENDS for each interface you declared with macro
+        IMPLEMENTS.
+     6. Declare  all function pointers for virtual methods you want  to
+        introduce  in  this class (do not repeat the  abstract  methods
+        declared  higher  in the hierarchy like the virtual  destructor
+        'Des' inherited from 'Object').
+     7. Continue with macro METHODS to declare class methods.
+     8. Declare   prototypes  for  all  public  and  protected  methods
+        implemented  by  the class. Apply naming convention  to  mangle
+        class  name  with the operation name. Do not forget to  declare
+        explicitly the 'this' argument for all methods (static or class
+        methods do not need 'this' pointer).
+     9. Close class declaration with macro END_CLASS.
+
+   Example:
+ 
+     #include "object.h"
+ 
+     CLASS(Shape, Object)      /* class Shape extends Object         */
+        IMPLEMENTS(Scaleable); /* and implements Scaleable interface */
+        struct String name;    /* public name (object composition)   */
+     VTABLE(Shape, Object)     /* Shape's VTABLE extends Object      */
+        EXTENDS(Scaleable);    /* and also extends Scaleable         */
+        double (*Area)(Shape); /* virtual method to compute area     */
+     METHODS
+        /* protected constructor (single '_' in the name) 
+         * means that Shape is an abstract class 
+         */
+        Shape Shape_Con(Shape this, char *name);
+        void Shape_Des(Shape this); /* protected destructor */
+     END_CLASS
+                          
+                          
+Declaring Interfaces
+--------------------
+   Interfaces are represented as structs of function pointers (VTABLEs)
+   In that way interfaces declare only virtual  methods,  which must be
+   eventually implemented by some classes. You can write code, however,
+   which is unaware of any specific implementation and accesses objects
+   solely through their  interfaces  (see macro ICALL).  Interfaces may
+   extend other interfaces.
+ 
+     1. Use INTERFACE macro to start interface declaration.
+     2. Invoke  EXTENDS  macro for each interface you want  to  inherit
+        from (optional).
+     3. Declare  all  abstract  method  pointers  introduced  by   this
+        interface.  Each method must declare first argument of 'Object'
+        type.
+     4. Close the declaration by END_INTERFACE macro.
+ 
+   Example:
+ 
+     #include "object.h"
+ 
+     INTERFACE(Scaleable)
+        void (*Scale)(Object, double);
+     END_INTERFACE
+ 
+     INTERFACE(Fooable)
+        EXTENDS(Scaleable);   /* interface Fooable extends Scaleable */
+        int (*Foo)(Object, long);
+     END_INTERFACE
+                          
+                          
+ Binding Virtual Functions
+ -------------------------
+   Virtual functions  are  declared  as  function  pointers  in a class
+   descriptor (VTABLE)  associated  with  the  class.  VTABLEs  must be
+   defined and initialized for every class. Since the inherited portion
+   of VTABLE  is copied from  superclass only the newly introduced  and
+   overridden virtual functions must be bound to their  implementation.
+   This  is  done   by  assigning   implementation   functions  to  the
+   corresponding function pointers.
+
+     1. Use macro BEGIN_VTABLE to define class  descriptor  constructor
+        for  a  given class.  Remember to invoke this  macro for  every
+        class,  even  if  this  class does not  override  any  abstract
+        methods. Otherwise the corresponding class descriptor  will  be
+        undefined.
+     2. Use  macro  VMETHOD  to bind abstract class  methods  to  their
+        implementation.  For example  VMETHOD(Object,  Des)  refers  to
+        abstract destructor introduced by the Object class. Remember to
+        initialize all abstract method pointers introduced by the given
+        class  (initialize 'purely virtual' functions with place holder
+        Object_NoIm() method).
+     3. Use  macro IMETHOD to bind abstract interface methods to  their
+        implementation.  For example IMETHOD(Fooable.Scaleable,  Scale)
+        refers to  abstract method 'Scale' from  'Scaleable'  interface
+        which  is  extended  by  'Fooable'  interface.  Initialize  all
+        abstract  method  pointers for interfaces  introduced  by  this
+        class  (if the interfaces extend other interfaces the inherited
+        methods  must  be  implemented  as  well).  Initialize  'purely
+        virtual' functions with place-holder Object_NoIm() method.
+     4. Close virtual table declaration with macro END_VTABLE.
+ 
+   Example:
+ 
+     #include "shape.h"
+ 
+     BEGIN_VTABLE(Shape, Object)
+        VMETHOD(Object, Des) = Shape_Des;       /* virtual destructor*/
+        VMETHOD(Shape, Area) = Object_NoIm;     /* purely virtual    */
+        IMETHOD(Scaleable, Scale) = Object_NoIm; /* ditto            */
+     END_VTABLE
+                     
+                     
+Defining Constructors
+---------------------
+   Each  class must provide at least one constructor method responsible
+   for  initialization  of the attribute structure. Constructor  should
+   take for the following actions:
+ 
+     1. Call base class constructor.
+     2. Invoke macro VHOOK to assign the virtual pointer.
+     3. Invoke  macro  IHOOK for all interfaces for which you  override
+        implementation (by invoking IMETHOD) in  corresponding  VTABLE.
+     4. Initialize  class  attributes  (possibly  through   their   own
+        constructors) in the order of their declaration in the class.
+ 
+   Example:
+ 
+     Shape Shape_Con(Shape this, char *name) {
+        Object_Con(&this->super);      /* superclass constructor     */
+        VHOOK(this, Shape);            /* assign 'Shape' VPTR        */
+        IHOOK(this, Shape, Scaleable); /* assign 'Scaleable' VPTR    */
+        if (!StringCon(&this->name, name))    /* construct member    */
+           return NULL;                /* signal failure             */
+        return this;                   /* signal success             */
+     }
+ 
+
+Defining Destructors
+--------------------
+   Optionally a class may define destructor implementation.  Destructor
+   is responsible for releasing resources (memory, files ...) allocated
+   during lifetime of an object (not only at construction).  If a class
+   implements  destructor it  should  also  be  used  to  override  the
+   inherited virtual destructor in the corresponding VTABLE. You should
+   perform the following tasks in class destructors:
+ 
+     1. Destroy attributes in the reverse order to their declaration in
+        the class.
+     2. Call superclass destructor.
+ 
+   Example:
+ 
+     void Shape_Des(Shape this) {
+        StringDes(&this->name);   /* member destructor     */
+        Object_Des(&this->super); /* superclass destructor */
+     }                        
+
+ 
+Invoking Virtual Class Methods
+------------------------------
+   Virtual   methods   are  called  indirectly  via   virtual   pointer
+   referring to corresponding VTABLE.  Macros VCALL/END_CALL facilitate
+   virtual class method invocation.
+ 
+   Example:
+     You can write code which only knows 'Shape' class.  The  area of a
+     shape will be calculated through a virtual function call:
+ 
+     #include "shape.h"
+ 
+     void testShape(Shape s) {
+        assert(IS_RUNTIME_CLASS(s, Shape)); /* use RTTI in assertion */
+        printf("Shape.name=\"%s\", Shape.Area()=%.2f\n",
+               StringToChar(&s->name),         /* static binding     */
+               VCALL(s, Shape, Area)END_CALL); /* dynamic binding    */
+     }
+ 
+   A pointer to any object extending 'Shape' can be used as 'testShape'
+   argument.  To be strictly correct you  should  cast  (upcast)  this
+   pointer on the 'Shape' type.
+ 
+     #include "shape.h"
+ 
+     Circle c;
+     ...
+     testShape((Shape)c);
+     ...
+
+ 
+Invoking Virtual Interface Methods
+----------------------------------
+   Interfaces  require  additionally    resolving   reference  to   the
+   implementing  object (I_TO_OBJ).  Macros  ICALL/END_CALL  facilitate
+   virtual interface method invocation.
+ 
+   Example:
+     You can write code which only knows 'Scaleable' interface. Objects
+     will be scaled through a virtual function  call  to  the   Scale() 
+     method:
+ 
+     #include "sclable.h"
+ 
+     void testScaleable(Scaleable s) {               
+        /* is it an Object?*/
+        assert(IS_RUNTIME_CLASS(I_TO_OBJ(s), Object)); 
+        
+        printf("Scaleable.Scale(), ");
+        ICALL(s, Scale) ,2.0 END_CALL;  /* dynamic binding */
+     }
+ 
+   Any object implementing 'Scaleable' can be used to  invoke  function
+   'testScaleable'. If 'Circle' extends 'Shape' and 'Shape'  implements
+   'Scaleable' you can say:
+ 
+     Circle c;
+     ...
+     testScaleable(&c->super.Scaleable);
+     ...
+
+
+Handling Objects On The Heap:
+-------------------------------
+   1. Use macro ALLOC/DELETE to allocate and delete dynamic  objects,
+      respectively.
+   2. Use macro ALLOC_ARR/DELETE_ARR to allocate and delete arrays of
+      dynamic object, respectively.
+ 
+   Objects allocated with ALLOC/ALLOC_ARR  must still be  initialized
+   by constructor call.  Macros DELETE/DELETE_ARR on  the other  hand
+   perform complete cleanup calling  (virtual)  destructor  for  each
+   object followed  by releasing heap memory.
+ 
+   Example:
+ 
+        Circ c = ALLOC(Circle);
+        ...
+        DELETE(c);
+ 
+        Rect r = ALLOC_ARR(Rect, NRECT);
+        ...
+        DELETE_ARR(r);
+
+ 
+Using RTTI (Run-Time Type Information):
+---------------------------------------
+   You can test objects for type compatibility using IS_RUNTIME_CLASS
+   macro.  Do  not  misuse  RTTI  since it defeats polymorphism.  Use
+   virtual functions instead.
+ 
+   1. Macro IS_RUNTIME_CLASS returns 1 if run-time class of an object
+      is, or inherits from a given class.
+   2. Use macro I_TO_OBJ to obtain object reference from an interface
+      reference.
+ 
+   Example:
+ 
+        Shape s;
+        ...
+        assert(IS_RUNTIME_CLASS(s, Shape));
+ 
+        Scaleable s;
+        ...
+        assert(IS_RUNTIME_CLASS(I_TO_OBJ(s), Object));
+ 
+
+
+LISTINGS
+========
+
+/**********************************************************************
+ * object.h  -- interface of portable object oriented extension  to  C.
+ *
+ * @author M. Samek
+ * @version 1.01, 03/20/97
+ *
+ * This header file defines the root base class 'Object' and macros for
+ * declaring classes and  interfaces,  implementing  classes,  invoking
+ * virtual  functions (dynamic binding), handling dynamic object on the
+ * heap and a simple RTTI (run-time type information).
+ * 
+ */
+#ifndef __OBJECT__
+
+#include <stddef.h>  /* for size_t, ptrdiff_t and NULL */
+#include <string.h>  /* for memcpy prototype */
+#include <stdlib.h>  /* for malloc/free prototypes */
+ 
+/**
+ * Abstract base class 'Object'
+ */
+typedef struct Object *Object;
+typedef struct ObjectClass *ObjectClass;
+struct ObjectClass {
+   size_t __size;       /* size of the Object instance */
+   ObjectClass __super; /* superclass descriptor pointer */
+   void (*Des)(Object);
+};
+extern struct ObjectClass __Object;
+struct Object {
+   ObjectClass __vptr; /* private virtual pointer */
+}; 
+
+/* protected constructor and destructor as macros */
+#define Object_Con(this) {(this)->__vptr=&__Object; }
+#define Object_Des(this) {}
+
+/* Test for type compatibility, use through macro only */
+int Object__IsKindOf(Object this, void *class);
+
+/* Handling objects on the heap, use through macros only */
+Object Object__AllocArr(size_t size, short dim);
+void Object__DeleteArr(Object obj);
+ 
+/* Dummy implementation for abstract methods */
+void Object_NoIm(void);
+  
+/**
+ * Macros for declaring classes
+ */
+#define CLASS(CX, SX)\
+   typedef struct CX *CX;\
+   struct CX {struct SX super;
+#define IMPLEMENTS(IX) struct IX *IX
+#define VTABLE(CX, SX) };\
+   extern struct CX##Class __##CX;\
+   typedef struct CX##Class *CX##Class;\
+   struct CX##Class {struct SX##Class super;
+#define METHODS };
+#define END_CLASS
+
+/**
+ * Macros for declaring interfaces
+ */
+#define INTERFACE(IX) typedef struct IX **IX;\
+   struct IX {ptrdiff_t __offset;
+#define END_INTERFACE };
+#define EXTENDS(IX) struct IX IX
+
+/**
+ * Macros for defining VTABLEs and binding virtual functions
+
+ */
+#define BEGIN_VTABLE(CX, SX) struct CX##Class __##CX;\
+   static void CX##ClassCon(CX t){CX##Class vptr=&__##CX;\
+   memcpy(vptr,((Object)t)->__vptr,sizeof(struct SX##Class));\
+   ((ObjectClass)vptr)->__size=sizeof(struct CX);
+#define VMETHOD(CX, MX) ((CX##Class)vptr)->MX
+#define IMETHOD(IX, MX)\
+   if (vptr->IX.__offset==0)\
+      vptr->IX.__offset=(char*)&t->IX-(char*)t;\
+   vptr->IX.MX
+#define END_VTABLE\
+   ((ObjectClass)vptr)->__super=((Object)t)->__vptr;}
+
+/**
+ * Macros needed in constructors
+ */
+#define VHOOK(OX, CX)\
+   {if(((ObjectClass)&__##CX)->__size==0) CX##ClassCon(OX);\
+   ((Object)(OX))->__vptr=(void*)&__##CX;}
+#define IHOOK(OX, CX, IX) (OX)->IX=&__##CX.IX
+ 
+/**
+ * Macro for invoking virtual class methods
+ * and macro for invoking interface methods.
+ */
+#define VCALL(OX, CX, MX)\
+   (*((CX##Class)(((Object)(OX))->__vptr))->MX)((CX)(OX)
+#define ICALL(IPX, MX) (*(*(IPX))->MX)(I_TO_OBJ(IPX)
+#define END_CALL )
+
+/**
+ * Macros for handling objects on the heap
+ */
+#define ALLOC(CX)  (CX)malloc(sizeof(struct CX))
+#define DELETE(OX)\
+   {VCALL(OX, Object, Des)END_CALL; free((void*)(OX));}
+#define ALLOC_ARR(CX,DX)\
+   (CX)Object__AllocArr(sizeof(struct CX), DX)
+#define DELETE_ARR(OX)  Object__DeleteArr((Object)(OX))
+
+/**
+ * Macros for RTTI (Run-Time Type Information)
+ */
+#define IS_RUNTIME_CLASS(OX, CX)\
+   Object__IsKindOf((Object)(OX),(void*)&__##CX)
+#define I_TO_OBJ(IPX) (Object)((char*)(IPX)-(*(IPX))->__offset)
+
+#define __OBJECT__
+#endif
+
+/********************************************************************** 
+ * object.c -- implementation file for Object class and utilities
+ * @author  M. Samek
+ * @version 1.01, 03/20/97
+ */
+#include "object.h"
+
+#include <assert.h>
+
+/** implementation of Object class */
+struct ObjectClass __Object = { 
+   sizeof(struct Object),        /* size of Object attributes */
+   NULL,                         /* no superclass */
+   (void (*)(Object))Object_NoIm /* purely virtual destructor */
+};
+
+int Object__IsKindOf(Object this, void *class) {
+   ObjectClass c;
+   for (c = this->__vptr; c; c = c->__super)
+      if (c == class)
+         return 1;
+   return 0;
+}
+
+Object Object__AllocArr(size_t size, short dim) {
+   short *a = (short*)malloc(sizeof(short)+dim*size);
+   if (a == NULL)
+      return NULL;
+   *a = dim; /* store the array dimension */
+   return (Object)(a + 1); /* return loaction of the first object */
+}
+
+void Object__DeleteArr(Object pobj) {
+   short *a = (short*)pobj - 1; /* start of allocated memory */
+   size_t s = ((ObjectClass)pobj->__vptr)->__size;
+   char *p; /* location of an object */
+   short i; /* index into the array */
+   for (i = 0, p = (char*)pobj; i < *a; i++, p += s)
+      VCALL(p, Object, Des)END_CALL;
+   free((void*)a); /* free up memory */
+}
+
+void Object_NoIm(void) {
+   assert(0); /* break the execution */
+}
+
+/********************************************************************** 
+ * string.h -- sample code
+ * @author  M. Samek
+ * @version 1.00, 03/06/97
+ */
+#ifndef __STRING__
+
+#include "object.h"
+
+/** String class extends Object */
+CLASS(String, Object)
+   char *__buffer; /* private character buffer */
+VTABLE(String, Object)
+METHODS
+   /* public constructors */
+   String StringCon1(String this, const char *str);
+   String StringCon2(String this, String other);
+
+   /* public destructor */
+   void StringDes(String this);
+
+   /* public to char conversion */
+   const char *StringToChar(String this);
+
+END_CLASS
+
+#define __STRING__
+#endif
+
+/********************************************************************** 
+ * string.c -- sample code
+ * @author  M. Samek
+ * @version 1.00, 03/06/97
+ */
+#include "string.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+/** implementation of String */
+BEGIN_VTABLE(String, Object)
+   VMETHOD(Object, Des) = (void (*)(Object))StringDes;
+END_VTABLE
+
+String StringCon1(String this, const char *str) {
+   Object_Con(&this->super); /* construct superclass  */
+   VHOOK(this, String); /* hook on the String class */
+   
+   /* allocate and initialize the character buffer */                   
+   this->__buffer = (char*)malloc(strlen(str) + 1);
+   if (!this->__buffer)
+      return NULL;      /* failure */
+   strcpy(this->__buffer, str);
+   return this;
+}
+
+String StringCon2(String this, String other) {
+   return StringCon1(this, StringToChar(other));
+}
+
+const char *StringToChar(String this) {
+   return this->__buffer;
+}
+
+void StringDes(String this) {
+   free(this->__buffer);     /* release buffer */ 
+   Object_Des(&this->super); /* destroy superclass */
+}
+
+/********************************************************************** 
+ * shapes.h -- sample code
+ * @author  M. Samek
+ * @version 1.00, 03/06/97
+ */
+#ifndef __SHAPES__
+
+#include "object.h"
+#include "string.h"
+
+/** Interface Scaleable */
+INTERFACE(Scaleable)
+   void (*Scale)(Object, double); 
+END_INTERFACE
+
+/** Class Shape extends Object, implements Scaleable */
+CLASS(Shape, Object) IMPLEMENTS(Scaleable);
+   struct String name;     /* public shape's name */
+VTABLE(Shape, Object) EXTENDS(Scaleable);
+   double (*Area)(Shape);  /* pure virtual! */
+METHODS
+   Shape Shape_Con(Shape this, char *name);
+   void Shape_Des(Shape this);
+END_CLASS
+
+/** Class Rect extends Shape */
+CLASS(Rect, Shape)
+   double __w; /* private width  */
+   double __h; /* private height */
+VTABLE(Rect, Shape)
+METHODS
+   Rect RectCon(Rect this, char *name, double w, double h);
+   double RectArea(Rect this);
+   void RectScale(Rect this, double mag);
+END_CLASS
+
+/** Class Circle extends Shape */
+CLASS(Circle, Shape)
+   double __r; /* private radius */
+VTABLE(Circle, Shape)
+METHODS
+   Circle CircleCon(Circle this, char* name, double r);
+   double CircleArea(Circle this);
+   void CircleScale(Circle this, double mag);
+END_CLASS
+
+#define __SHAPES__
+#endif
+
+/********************************************************************** 
+ * shapes.c -- sample code
+ * @author  M. Samek
+ * @version 1.00, 03/06/97
+ */
+#include "shapes.h"
+
+/** implementation of Shape */
+BEGIN_VTABLE(Shape, Object)
+   VMETHOD(Object, Des) = (void (*)(Object))Shape_Des;
+   VMETHOD(Shape, Area) = (double (*)(Shape))Object_NoIm;
+   IMETHOD(Scaleable, Scale) = (void (*)(Object, double))Object_NoIm;
+END_VTABLE
+
+Shape Shape_Con(Shape this, char *name) {
+   Object_Con(&this->super);      /* construct superclass */
+   VHOOK(this, Shape);            /* hook Shape class */
+   IHOOK(this, Shape, Scaleable); /* hook Scaleable interface */
+   if (!StringCon1(&this->name, name)) /* construct member */
+      return NULL;                /* report failure */
+   return this;
+}
+
+void Shape_Des(Shape this) {
+   StringDes(&this->name);   /* destroy member     */
+   Object_Des(&this->super); /* destroy superclass */
+}
+
+/** implementation of Rect  */
+BEGIN_VTABLE(Rect, Shape)
+   VMETHOD(Shape, Area) = (double (*)(Shape))RectArea;
+   IMETHOD(super.Scaleable, Scale) = (void (*)(Object,
+double))RectScale;
+END_VTABLE
+
+Rect RectCon(Rect this, char *name, double w, double h) {
+   if (!Shape_Con(&this->super, name)) /* construct superclass */
+      return NULL;                     /* report failure */
+   VHOOK(this, Rect);                  /* hook Rect class */
+   IHOOK(this, Rect, super.Scaleable); /* hook Scaleable interface */
+   this->__h = h;                      /* initialise member(s) */
+   this->__w = w;
+   return this;
+}
+
+double RectArea(Rect this) {
+   return this->__w  *this->__h;
+}
+
+void RectScale(Rect this, double mag){
+   this->__w *= mag;
+   this->__h *= mag;
+}
+
+/* implementation of Circle */
+BEGIN_VTABLE(Circle, Shape)
+   VMETHOD(Shape, Area) = (double (*)(Shape))CircleArea;
+   IMETHOD(super.Scaleable, Scale) = (void (*)(Object,
+double))CircleScale;
+END_VTABLE
+
+Circle CircleCon(Circle this, char *name, double r) {
+   if (!Shape_Con(&this->super, name))/* construct superclass */
+      return NULL;                    /* report failure */
+   VHOOK(this, Circle);               /* hook Circle class */
+   IHOOK(this, Circle, super.Scaleable); /* hook Scaleable interface */
+   this->__r = r;                     /* initialise member(s) */
+   return this;
+}
+
+double CircleArea(Circle this) {
+   return 3.14 * this->__r * this->__r;
+}
+
+void CircleScale(Circle this, double mag) {
+   this->__r *= mag;
+}
+    
+/********************************************************************** 
+ * test.c -- sample code
+ * @author  M. Samek
+ * @version 1.00, 03/06/97
+ */
+#include "shapes.h"
+
+#include <stdio.h>
+#include <assert.h>
+
+void testShape(Shape s) {
+   assert(IS_RUNTIME_CLASS(s, Shape));
+   printf("Shape.name=\"%s\", Shape.Area()=%.2f\n",
+          StringToChar(&s->name),         /* static binding */
+          VCALL(s, Shape, Area)END_CALL); /* dynamic binding */
+}
+
+void testScaleable(Scaleable s) {
+   assert(IS_RUNTIME_CLASS(I_TO_OBJ(s), Object)); 
+   printf("Scaleable.Scale(), ");
+   ICALL(s, Scale) ,2.0 END_CALL; /* dynamic binding */
+}
+
+#define NRECT 10
+
+void main() {
+   struct Circle circle;  /* Circle instance on the stack frame */
+   Circle c;
+   Rect r; 
+   int i;
+
+   /* construct objects... */
+   c = CircleCon(&circle, "Circle", 0.5); /* construct a Circle */
+   r = ALLOC_ARR(Rect, NRECT); /* allocate Rectangles */ 
+   for (i = 0; i < NRECT; i++) {
+      char name[20];
+      sprintf(name, "Rectangle-%d", i); /* prepare the name */
+      RectCon(&r[i], name, (double)i, 0.5); /* construct a Rect */
+   }
+
+   /* test each object... */
+   testScaleable(&c->super.Scaleable);
+   testShape((Shape)c);
+   for (i = 0; i < NRECT; i++) {
+      testScaleable(&r[i].super.Scaleable);
+      testShape((Shape)&r[i]);
+   }
+
+   /* detstroy objects... */
+   VCALL(c, Object, Des)END_CALL;  /* dynamic binding */
+   DELETE_ARR(r);
+}
+    
+
+
+
+
+Listing 1
+Declaration of String class.
+
+#include 3object.h2
+/** Character String class */
+CLASS(String, Object)
+   char *__buffer; /* private buffer */
+VTABLE(String, Object)
+METHODS
+   /* public constructors */
+   String StringCon1(String this,
+                const char *str);
+   String StringCon2(String this,
+                String other);
+
+   /* public destructor *
+   void StringDes(String this);
+
+   /* public to char conversion */
+   const char *StringToChar(String this);
+END_CLASS
+
+
+Listing 2
+Definition of class String.
+
+#include <stdlib.h>
+#include <string.h>
+#include 3string.h2
+/** implementation of String class */
+BEGIN_VTABLE(String, Object)
+   VMETHOD(Object, Des) = (void (*)(Object))StringDes;
+END_VTABLE
+String StringCon1(String this, const char *str) {
+   Object_Con(&this->super); /* construct superclass */
+   VHOOK(this, String);   /* hook String VPTR */
+   /* allocate and initialize the buffer */
+   this->__buffer = (char*)malloc(strlen(str) + 1);
+   if (!this->__buffer)
+      return NULL;      /* failure */
+   strcpy(this->__buffer, str);
+   return this;
+}
+String StringCon2(String this, String other) {
+   return StringCon1(this, StringToChar(other));
+}
+const char *StringToChar(String this) {
+   return this->__buffer;
+}
+void StringDes(String this) {
+   free(this->__buffer);   /* release buffer */
+   Object_Des(&this->super); /* destroy superclass */
+}
+
+
