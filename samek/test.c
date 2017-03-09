@@ -73,7 +73,7 @@ METHODS
    String StringCon2(String this,
                 String other);
 
-   /* public destructor *
+   /* public destructor * /
    void StringDes(String this);
 
    /* public to char conversion */
