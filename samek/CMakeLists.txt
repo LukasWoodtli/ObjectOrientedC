@@ -7,24 +7,17 @@ set(CMAKE_BUILD_TYPE Debug)
 
 enable_testing()
 
-
+add_subdirectory("lib")
 
 set(CFILES
-	test.c
-	object.c
-	shapes.c
-	string.c
 	)
 
 	
 set(HFILES
-	object.h
-	shapes.h
-	string.h
 	)
 
 
-add_executable( Samek ${CFILES} ${HFLES} )
+#add_executable( Samek ${CFILES} ${HFLES} )
 
-add_test(Samek Samek)
+#add_test(Samek Samek)
 
